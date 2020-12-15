@@ -18,169 +18,197 @@ using System.Windows.Forms;
 using System.IO;
 using System.Net;
 using System.Net.Cache;
+using System.Threading;
 
 namespace TestHttpPost
 {
-	public partial class FrmTestHttpPost : Form
-	{
-		private EncodingInfo[] _Encodings = null;	// 编码集合.
-		private Encoding _ResEncoding = null;	// 回应的编码.
+    public partial class FrmTestHttpPost : Form
+    {
+        private EncodingInfo[] _Encodings = null;   // 编码集合.
+        private Encoding _ResEncoding = null;   // 回应的编码.
 
-		public FrmTestHttpPost()
-		{
-			InitializeComponent();
-		}
+        public FrmTestHttpPost()
+        {
+            InitializeComponent();
+        }
 
-		/// <summary>
-		/// 根据BodyName创建Encoding对象。
-		/// </summary>
-		/// <param name="bodyname">与邮件代理正文标记一起使用的当前编码的名称。</param>
-		/// <returns>返回Encoding对象。若没有匹配的BodyName，便返回null。</returns>
-		public static Encoding Encoding_FromBodyName(string bodyname)
-		{
-			if (string.IsNullOrEmpty(bodyname)) return null;
-			try
-			{
-				foreach (EncodingInfo ei in Encoding.GetEncodings())
-				{
-					Encoding e = ei.GetEncoding();
-					if (0 == string.Compare(bodyname, e.BodyName, true))
-					{
-						return e;
-					}
-				}
-			}
-			catch
-			{
-			}
-			return null;
-		}
+        /// <summary>
+        /// 根据BodyName创建Encoding对象。
+        /// </summary>
+        /// <param name="bodyname">与邮件代理正文标记一起使用的当前编码的名称。</param>
+        /// <returns>返回Encoding对象。若没有匹配的BodyName，便返回null。</returns>
+        public static Encoding Encoding_FromBodyName(string bodyname)
+        {
+            if (string.IsNullOrEmpty(bodyname)) return null;
+            try
+            {
+                foreach (EncodingInfo ei in Encoding.GetEncodings())
+                {
+                    Encoding e = ei.GetEncoding();
+                    if (0 == string.Compare(bodyname, e.BodyName, true))
+                    {
+                        return e;
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
 
-		/// <summary>
-		/// 输出日志文本.
-		/// </summary>
-		/// <param name="s">日志文本</param>
-		private void OutLog(string s)
-		{
-			txtLog.AppendText(s + Environment.NewLine);
-			txtLog.ScrollToCaret();
-		}
-		private void OutLog(string format, params object[] args)
-		{
-			OutLog(string.Format(format, args));
-		}
+        /// <summary>
+        /// 输出日志文本.
+        /// </summary>
+        /// <param name="s">日志文本</param>
+        private void OutLog(string s)
+        {
+            txtLog.Invoke(new Action<string>(p =>
+            {
+                txtLog.AppendText(p + Environment.NewLine);
+                txtLog.ScrollToCaret();
+            }), s);
+        }
 
-		private void FrmTestHttpPost_Load(object sender, EventArgs e)
-		{
-			// Http方法
-			cboMode.SelectedIndex = 1;  // POST
-			cboContentType.SelectedIndex = 0; // json
+        private void OutLog(string format, params object[] args)
+        {
+            OutLog(string.Format(format, args));
+        }
 
-			// 回应的编码
-			cboResEncoding.Items.Clear();
-			_Encodings = Encoding.GetEncodings();
-			cboResEncoding.DataSource = _Encodings;
-			cboResEncoding.DisplayMember = "DisplayName";
-			_ResEncoding = Encoding.UTF8;
-			cboResEncoding.SelectedIndex = cboResEncoding.FindStringExact(_ResEncoding.EncodingName);
+        private void HttpReq(Encoding myEncoding, string sMode, string sUrl, string sContentType, string sPostData)
+        {
+            HttpWebRequest req;
 
-		}
+            // == main ==
+            OutLog(string.Format("{2}: {0} {1}", sMode, sUrl, DateTime.Now.ToString("g")));
+            try
+            {
+                // init
+                req = HttpWebRequest.Create(sUrl) as HttpWebRequest;
+                req.Method = sMode;
+                req.Accept = "*/*";
+                req.KeepAlive = false;
+                req.CachePolicy = new HttpRequestCachePolicy(HttpRequestCacheLevel.NoCacheNoStore);
+                if (0 == string.Compare("POST", sMode))
+                {
+                    byte[] bufPost = myEncoding.GetBytes(sPostData);
+                    req.ContentType = sContentType;
+                    req.ContentLength = bufPost.Length;
+                    Stream newStream = req.GetRequestStream();
+                    newStream.Write(bufPost, 0, bufPost.Length);
+                    newStream.Close();
+                }
 
-		private void btnGo_Click(object sender, EventArgs e)
-		{
-			Encoding myEncoding = Encoding.UTF8;
-			string sMode = (string)cboMode.SelectedItem;
-			string sUrl = txtUrl.Text;
-			string sPostData = txtPostData.Text;
-			string sContentType = cboContentType.SelectedItem.ToString(); // "application/x-www-form-urlencoded";
-			HttpWebRequest req;
+                // Response
+                HttpWebResponse res = req.GetResponse() as HttpWebResponse;
+                try
+                {
+                    OutLog("Response.ContentLength:\t{0}", res.ContentLength);
+                    OutLog("Response.ContentType:\t{0}", res.ContentType);
+                    OutLog("Response.CharacterSet:\t{0}", res.CharacterSet);
+                    OutLog("Response.ContentEncoding:\t{0}", res.ContentEncoding);
+                    OutLog("Response.IsFromCache:\t{0}", res.IsFromCache);
+                    OutLog("Response.IsMutuallyAuthenticated:\t{0}", res.IsMutuallyAuthenticated);
+                    OutLog("Response.LastModified:\t{0}", res.LastModified);
+                    OutLog("Response.Method:\t{0}", res.Method);
+                    OutLog("Response.ProtocolVersion:\t{0}", res.ProtocolVersion);
+                    OutLog("Response.ResponseUri:\t{0}", res.ResponseUri);
+                    OutLog("Response.Server:\t{0}", res.Server);
+                    OutLog("Response.StatusCode:\t{0}\t# {1}", res.StatusCode, (int)res.StatusCode);
+                    OutLog("Response.StatusDescription:\t{0}", res.StatusDescription);
 
-			// Log Length
-			if (txtLog.Lines.Length > 3000) txtLog.Clear();
+                    // header
+                    OutLog(".\t#Header:");  // 头.
+                    for (int i = 0; i < res.Headers.Count; ++i)
+                    {
+                        OutLog("[{2}] {0}:\t{1}", res.Headers.Keys[i], res.Headers[i], i);
+                    }
 
-			// == main ==
-			OutLog(string.Format("{2}: {0} {1}", sMode, sUrl, DateTime.Now.ToString("g")));
-			try
-			{
-				// init
-				req = HttpWebRequest.Create(sUrl) as HttpWebRequest;
-				req.Method = sMode;
-				req.Accept = "*/*";
-				req.KeepAlive = false;
-				req.CachePolicy = new HttpRequestCachePolicy(HttpRequestCacheLevel.NoCacheNoStore);
-				if (0 == string.Compare("POST", sMode))
-				{
-					byte[] bufPost = myEncoding.GetBytes(sPostData);
-					req.ContentType = sContentType;
-					req.ContentLength = bufPost.Length;
-					Stream newStream = req.GetRequestStream();
-					newStream.Write(bufPost, 0, bufPost.Length);
-					newStream.Close();
-				}
+                    // 找到合适的编码
+                    Encoding encoding = null;
+                    //encoding = Encoding_FromBodyName(res.CharacterSet);	// 后来发现主体部分的字符集与Response.CharacterSet不同.
+                    //if (null == encoding) encoding = myEncoding;
+                    encoding = _ResEncoding;
+                    System.Diagnostics.Debug.WriteLine(encoding);
 
-				// Response
-				HttpWebResponse res = req.GetResponse() as HttpWebResponse;
-				try
-				{
-					OutLog("Response.ContentLength:\t{0}", res.ContentLength);
-					OutLog("Response.ContentType:\t{0}", res.ContentType);
-					OutLog("Response.CharacterSet:\t{0}", res.CharacterSet);
-					OutLog("Response.ContentEncoding:\t{0}", res.ContentEncoding);
-					OutLog("Response.IsFromCache:\t{0}", res.IsFromCache);
-					OutLog("Response.IsMutuallyAuthenticated:\t{0}", res.IsMutuallyAuthenticated);
-					OutLog("Response.LastModified:\t{0}", res.LastModified);
-					OutLog("Response.Method:\t{0}", res.Method);
-					OutLog("Response.ProtocolVersion:\t{0}", res.ProtocolVersion);
-					OutLog("Response.ResponseUri:\t{0}", res.ResponseUri);
-					OutLog("Response.Server:\t{0}", res.Server);
-					OutLog("Response.StatusCode:\t{0}\t# {1}", res.StatusCode, (int)res.StatusCode);
-					OutLog("Response.StatusDescription:\t{0}", res.StatusDescription);
+                    // body
+                    OutLog(".\t#Body:");    // 主体.
+                    using (Stream resStream = res.GetResponseStream())
+                    {
+                        using (StreamReader resStreamReader = new StreamReader(resStream, encoding))
+                        {
+                            OutLog(resStreamReader.ReadToEnd());
+                        }
+                    }
+                    OutLog(".\t#OK.");  // 成功.
+                }
+                finally
+                {
+                    res.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                OutLog(ex.ToString());
+            }
+            OutLog(string.Empty);
 
-					// header
-					OutLog(".\t#Header:");	// 头.
-					for (int i = 0; i < res.Headers.Count; ++i)
-					{
-						OutLog("[{2}] {0}:\t{1}", res.Headers.Keys[i], res.Headers[i], i);
-					}
+        }
 
-					// 找到合适的编码
-					Encoding encoding = null;
-					//encoding = Encoding_FromBodyName(res.CharacterSet);	// 后来发现主体部分的字符集与Response.CharacterSet不同.
-					//if (null == encoding) encoding = myEncoding;
-					encoding = _ResEncoding;
-					System.Diagnostics.Debug.WriteLine(encoding);
+        private void FrmTestHttpPost_Load(object sender, EventArgs e)
+        {
+            // Http方法
+            cboMode.SelectedIndex = 1;  // POST
+            cboContentType.SelectedIndex = 0; // json
 
-					// body
-					OutLog(".\t#Body:");	// 主体.
-					using (Stream resStream = res.GetResponseStream())
-					{
-						using (StreamReader resStreamReader = new StreamReader(resStream, encoding))
-						{
-							OutLog(resStreamReader.ReadToEnd());
-						}
-					}
-					OutLog(".\t#OK.");	// 成功.
-				}
-				finally
-				{
-					res.Close();
-				}
-			}
-			catch (Exception ex)
-			{
-				OutLog(ex.ToString());
-			}
-			OutLog(string.Empty);
+            // 回应的编码
+            cboResEncoding.Items.Clear();
+            _Encodings = Encoding.GetEncodings();
+            cboResEncoding.DataSource = _Encodings;
+            cboResEncoding.DisplayMember = "DisplayName";
+            _ResEncoding = Encoding.UTF8;
+            cboResEncoding.SelectedIndex = cboResEncoding.FindStringExact(_ResEncoding.EncodingName);
 
+        }
 
+        private void btnGo_Click(object sender, EventArgs e)
+        {
+            Encoding myEncoding = Encoding.UTF8;
+            string sMode = (string)cboMode.SelectedItem;
+            string sUrl = txtUrl.Text;
+            string sPostData = txtPostData.Text;
+            string sContentType = cboContentType.SelectedItem.ToString(); // "application/x-www-form-urlencoded";
+            TextReader read = new System.IO.StringReader(sPostData);
 
-		}
+            // Log Length
+            if (txtLog.Lines.Length > 3000) txtLog.Clear();
 
-		private void cboResEncoding_SelectedIndexChanged(object sender, EventArgs e)
-		{
-			EncodingInfo ei = cboResEncoding.SelectedItem as EncodingInfo;
-			if (null == ei) return;
-			_ResEncoding = ei.GetEncoding();
-		}
-	}
+            if (checkBox1.Checked)
+            {
+                do
+                {
+                    sPostData = read.ReadLine();
+                    if (string.IsNullOrWhiteSpace(sPostData))
+                        break;
+                    // == main ==
+                    HttpReq(myEncoding, sMode, sUrl, sContentType, sPostData);
+                    Thread.Sleep(100);
+
+                } while (!string.IsNullOrWhiteSpace(sPostData));
+            }
+            else
+            {
+                // == main ==
+                HttpReq(myEncoding, sMode, sUrl, sContentType, sPostData);
+            }
+
+        }
+
+        private void cboResEncoding_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            EncodingInfo ei = cboResEncoding.SelectedItem as EncodingInfo;
+            if (null == ei) return;
+            _ResEncoding = ei.GetEncoding();
+        }
+    }
 }
