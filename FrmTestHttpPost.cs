@@ -19,6 +19,7 @@ using System.IO;
 using System.Net;
 using System.Net.Cache;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TestHttpPost
 {
@@ -75,16 +76,16 @@ namespace TestHttpPost
             OutLog(string.Format(format, args));
         }
 
-        private void HttpReq(Encoding myEncoding, string sMode, string sUrl, string sContentType, string sPostData)
+        private void HttpReq(Encoding myEncoding, string sMode, string sUrl, string sContentType, string sPostData, bool bVerbose)
         {
             HttpWebRequest req;
 
             // == main ==
-            OutLog(string.Format("{2}: {0} {1}", sMode, sUrl, DateTime.Now.ToString("g")));
+            if (bVerbose) OutLog(string.Format("{3}: {0} {1} {2}", sMode, sUrl, sPostData, DateTime.Now.ToString("g")));
             try
             {
                 // init
-                req = HttpWebRequest.Create(sUrl) as HttpWebRequest;
+                req = HttpWebRequest.Create(sMode == "GET" ? sUrl + sPostData : sUrl) as HttpWebRequest;
                 req.Method = sMode;
                 req.Accept = "*/*";
                 req.KeepAlive = false;
@@ -103,25 +104,28 @@ namespace TestHttpPost
                 HttpWebResponse res = req.GetResponse() as HttpWebResponse;
                 try
                 {
-                    OutLog("Response.ContentLength:\t{0}", res.ContentLength);
-                    OutLog("Response.ContentType:\t{0}", res.ContentType);
-                    OutLog("Response.CharacterSet:\t{0}", res.CharacterSet);
-                    OutLog("Response.ContentEncoding:\t{0}", res.ContentEncoding);
-                    OutLog("Response.IsFromCache:\t{0}", res.IsFromCache);
-                    OutLog("Response.IsMutuallyAuthenticated:\t{0}", res.IsMutuallyAuthenticated);
-                    OutLog("Response.LastModified:\t{0}", res.LastModified);
-                    OutLog("Response.Method:\t{0}", res.Method);
-                    OutLog("Response.ProtocolVersion:\t{0}", res.ProtocolVersion);
-                    OutLog("Response.ResponseUri:\t{0}", res.ResponseUri);
-                    OutLog("Response.Server:\t{0}", res.Server);
-                    OutLog("Response.StatusCode:\t{0}\t# {1}", res.StatusCode, (int)res.StatusCode);
-                    OutLog("Response.StatusDescription:\t{0}", res.StatusDescription);
-
-                    // header
-                    OutLog(".\t#Header:");  // 头.
-                    for (int i = 0; i < res.Headers.Count; ++i)
+                    if (bVerbose)
                     {
-                        OutLog("[{2}] {0}:\t{1}", res.Headers.Keys[i], res.Headers[i], i);
+                        OutLog("Response.ContentLength:\t{0}", res.ContentLength);
+                        OutLog("Response.ContentType:\t{0}", res.ContentType);
+                        OutLog("Response.CharacterSet:\t{0}", res.CharacterSet);
+                        OutLog("Response.ContentEncoding:\t{0}", res.ContentEncoding);
+                        OutLog("Response.IsFromCache:\t{0}", res.IsFromCache);
+                        OutLog("Response.IsMutuallyAuthenticated:\t{0}", res.IsMutuallyAuthenticated);
+                        OutLog("Response.LastModified:\t{0}", res.LastModified);
+                        OutLog("Response.Method:\t{0}", res.Method);
+                        OutLog("Response.ProtocolVersion:\t{0}", res.ProtocolVersion);
+                        OutLog("Response.ResponseUri:\t{0}", res.ResponseUri);
+                        OutLog("Response.Server:\t{0}", res.Server);
+                        OutLog("Response.StatusCode:\t{0}\t# {1}", res.StatusCode, (int)res.StatusCode);
+                        OutLog("Response.StatusDescription:\t{0}", res.StatusDescription);
+
+                        // header
+                        OutLog(".\t#Header:");  // 头.
+                        for (int i = 0; i < res.Headers.Count; ++i)
+                        {
+                            OutLog("[{2}] {0}:\t{1}", res.Headers.Keys[i], res.Headers[i], i);
+                        }
                     }
 
                     // 找到合适的编码
@@ -132,7 +136,7 @@ namespace TestHttpPost
                     System.Diagnostics.Debug.WriteLine(encoding);
 
                     // body
-                    OutLog(".\t#Body:");    // 主体.
+                    if (bVerbose) OutLog(".\t#Body:");    // 主体.
                     using (Stream resStream = res.GetResponseStream())
                     {
                         using (StreamReader resStreamReader = new StreamReader(resStream, encoding))
@@ -140,7 +144,7 @@ namespace TestHttpPost
                             OutLog(resStreamReader.ReadToEnd());
                         }
                     }
-                    OutLog(".\t#OK.");  // 成功.
+                    if (bVerbose) OutLog(".\t#OK.");  // 成功.
                 }
                 finally
                 {
@@ -181,25 +185,31 @@ namespace TestHttpPost
             TextReader read = new System.IO.StringReader(sPostData);
 
             // Log Length
-            if (txtLog.Lines.Length > 3000) txtLog.Clear();
+            //if (txtLog.Lines.Length > 3000) txtLog.Clear();
 
             if (checkBox1.Checked)
             {
-                do
+                Task.Run(() =>
                 {
-                    sPostData = read.ReadLine();
-                    if (string.IsNullOrWhiteSpace(sPostData))
-                        break;
-                    // == main ==
-                    HttpReq(myEncoding, sMode, sUrl, sContentType, sPostData);
-                    Thread.Sleep(100);
+                    do
+                    {
+                        if (string.IsNullOrWhiteSpace(sUrl))
+                            break;
+                        sPostData = read.ReadLine();
+                        if (string.IsNullOrWhiteSpace(sPostData))
+                            break;
+                        // == main ==
+                        HttpReq(myEncoding, sMode, sUrl, sContentType, sPostData, checkBox2.Checked);
 
-                } while (!string.IsNullOrWhiteSpace(sPostData));
+                        Thread.Sleep((int)numericUpDown1.Value);
+
+                    } while (!string.IsNullOrWhiteSpace(sPostData));
+                });
             }
             else
             {
                 // == main ==
-                HttpReq(myEncoding, sMode, sUrl, sContentType, sPostData);
+                HttpReq(myEncoding, sMode, sUrl, sContentType, sPostData, checkBox2.Checked);
             }
 
         }
@@ -209,6 +219,11 @@ namespace TestHttpPost
             EncodingInfo ei = cboResEncoding.SelectedItem as EncodingInfo;
             if (null == ei) return;
             _ResEncoding = ei.GetEncoding();
+        }
+
+        private void button1_Click(object sender, EventArgs e)
+        {
+            txtLog.Clear();
         }
     }
 }
